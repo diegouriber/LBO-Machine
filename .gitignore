@@ -9,3 +9,5 @@ venv/
 *.7z
 .DS_Store
 ~$*
+data/interim/validation_price_cache_stooq/
+data/interim/validation_price_cache_stooq_combined.csv
