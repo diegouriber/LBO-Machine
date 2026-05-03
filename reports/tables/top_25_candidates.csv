@@ -1,0 +1,25 @@
+rank,ticker,sector,final_score,nlp_stagnation_score,financial_feasibility_score,lbo_financial_score,lbo_status,lbo_rating,financial_red_flag,candidate_label
+1,ADI,Technology,0.8327116460138304,0.8017309228769005,0.905,90.5,Pass,Ideal,False,Strong candidate
+2,ABBV,Healthcare,0.8095308118738995,0.7921868741055708,0.85,85.0,Fail,Situational,False,Strong candidate
+3,APH,Technology,0.7998025693648712,0.7718608133783873,0.865,86.5,Pass,Ideal,False,Review candidate
+4,ABT,Healthcare,0.7816428170942396,0.7309183101346279,0.9,90.0,Pass,Ideal,False,Review candidate
+5,ALGN,Healthcare,0.7473204182181814,0.7183148831688306,0.815,81.5,Pass,Attractive,False,Review candidate
+6,MO,Consumer Defensive,0.719943434067071,0.6192049058101015,0.955,95.5,Fail,Situational,False,Review candidate
+7,AMD,Technology,0.696540778860115,0.5943439698001642,0.9350000000000002,93.5,Pass,Ideal,False,Lower priority
+8,AMGN,Healthcare,0.6665127375921422,0.6607324822744891,0.6799999999999998,67.99999999999999,Pass,Marginal,False,Lower priority
+9,ADBE,Technology,0.6631659191631715,0.5188084559473879,1.0,100.0,Fail,Situational,False,Lower priority
+10,ACN,Technology,0.645955825809798,0.5092226082997116,0.965,96.5,Pass,Ideal,False,Lower priority
+11,MMM,Industrials,0.6299967201559269,0.6192810287941813,0.655,65.5,Pass,Marginal,False,Lower priority
+12,ARE,Real Estate,0.6138285361568018,0.621897908795431,0.5950000000000001,59.50000000000001,Fail,Marginal,True,Financial caution
+13,APTV,Consumer Cyclical,0.6118515644727758,0.5933593778182512,0.655,65.5,Pass,Marginal,False,Lower priority
+14,APP,Communication Services,0.5949997343589941,0.4299996205128489,0.98,98.0,Pass,Ideal,False,Lower priority
+15,AME,Industrials,0.5448154983700902,0.3797364262429862,0.9299999999999998,93.0,Pass,Ideal,False,Lower priority
+16,ALLE,Industrials,0.5390414556813969,0.4014877938305671,0.86,86.0,Pass,Ideal,False,Lower priority
+17,AWK,Utilities,0.5338297129221528,0.7433281613173611,0.045,4.5,Fail,Marginal,True,Financial caution
+18,APD,Basic Materials,0.5283162043786975,0.7547374348267109,0.0,0.0,Fail,Marginal,True,Financial caution
+19,ALB,Basic Materials,0.5103989632177572,0.5362842331682248,0.4499999999999999,44.99999999999999,Fail,Marginal,True,Financial caution
+20,AOS,Industrials,0.48195728267172766,0.3092246895310395,0.885,88.5,Pass,Ideal,False,Lower priority
+21,AKAM,Technology,0.4750464259991922,0.4386377514274174,0.56,56.00000000000001,Fail,Marginal,True,Financial caution
+22,AEP,Utilities,0.4408126914077863,0.6168752734396947,0.03,3.0,Fail,Marginal,True,Financial caution
+23,LNT,Utilities,0.437662753293564,0.6123753618479486,0.03,3.0,Fail,Marginal,True,Financial caution
+24,AES,Utilities,0.4373168472302909,0.6183097817575585,0.015,1.5,Fail,Marginal,True,Financial caution
