@@ -1,0 +1,4 @@
+ticker,company,sector,sub_industry,fetch_success,error,market_cap,enterprise_value,last_price,revenue,gross_profit,ebitda,ebit,interest_expense,operating_cash_flow,capex,fcf,free_cash_flow,total_debt,cash,net_debt,current_assets,current_liabilities,interest_coverage,cash_interest_coverage,debt_to_ebitda,net_debt_to_ebitda,fcf_margin,fcf_conversion,fcf_to_debt,current_ratio,capex_to_revenue,capex_to_ebitda,usable_metric_count
+MMM,3M,Industrials,Industrial Conglomerates,False,,,,,,,,,,,,,,,,,,,,,,,,,,,,,0
+AOS,A. O. Smith,Industrials,Building Products,False,,,,,,,,,,,,,,,,,,,,,,,,,,,,,0
+ABT,Abbott Laboratories,Health Care,Health Care Equipment,False,,,,,,,,,,,,,,,,,,,,,,,,,,,,,0

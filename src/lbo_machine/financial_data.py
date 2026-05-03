@@ -15,11 +15,9 @@ def clean_column_names(df: pd.DataFrame) -> pd.DataFrame:
     """
     df = df.copy()
 
-    # Drop empty separator columns like "Unnamed: 5", "Unnamed: 12", etc.
     unnamed_cols = [col for col in df.columns if str(col).startswith("Unnamed")]
     df = df.drop(columns=unnamed_cols, errors="ignore")
 
-    # Standardize column names
     df.columns = (
         df.columns
         .astype(str)
@@ -35,8 +33,7 @@ def load_raw_financial_screen() -> pd.DataFrame:
     """
     Load the existing financial screening Excel file.
 
-    This file is currently more reliable than yfinance because it already
-    contains the calculated LBO financial metrics and scores.
+    This file is currently the stable financial source for the project.
     """
     if not RAW_FINANCIAL_FILE.exists():
         raise FileNotFoundError(f"Missing raw financial file: {RAW_FINANCIAL_FILE}")
@@ -62,12 +59,9 @@ def standardize_financial_screen(df: pd.DataFrame) -> pd.DataFrame:
     if "sector" in df.columns:
         df["sector"] = df["sector"].astype(str).str.strip()
 
-    # Remove financial sector firms because traditional LBO ratios
-    # are not economically comparable for them.
     if "sector" in df.columns:
         df = df[~df["sector"].isin(EXCLUDED_SECTORS)].copy()
 
-    # Convert key numeric columns
     numeric_cols = [
         "lbo_rank",
         "year",
@@ -103,7 +97,6 @@ def standardize_financial_screen(df: pd.DataFrame) -> pd.DataFrame:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors="coerce")
 
-    # Convert boolean filter columns
     bool_cols = [
         "missing_critical_data",
         "pass_fcf_filter",
@@ -118,7 +111,6 @@ def standardize_financial_screen(df: pd.DataFrame) -> pd.DataFrame:
         if col in df.columns:
             df[col] = df[col].astype(bool)
 
-    # Keep latest year if duplicates exist
     if "year" in df.columns:
         df = (
             df.sort_values(["ticker", "year"])
@@ -127,26 +119,28 @@ def standardize_financial_screen(df: pd.DataFrame) -> pd.DataFrame:
             .copy()
         )
 
-    # Normalize financial score to 0-1.
-    # Original lbo_financial_score is on a 0-100 scale.
     if "lbo_financial_score" in df.columns:
         df["financial_feasibility_score"] = df["lbo_financial_score"] / 100
     else:
         raise ValueError("Financial dataset must contain 'lbo_financial_score'.")
 
-    # Add red flag for financial feasibility concerns
     df["financial_red_flag"] = False
 
     if "interest_coverage" in df.columns:
-        df["financial_red_flag"] = df["financial_red_flag"] | (df["interest_coverage"] < 2.0)
+        df["financial_red_flag"] = df["financial_red_flag"] | (
+            df["interest_coverage"] < 2.0
+        )
 
     if "debt_to_ebitda" in df.columns:
-        df["financial_red_flag"] = df["financial_red_flag"] | (df["debt_to_ebitda"] > 4.0)
+        df["financial_red_flag"] = df["financial_red_flag"] | (
+            df["debt_to_ebitda"] > 4.0
+        )
 
     if "fcf_margin" in df.columns:
-        df["financial_red_flag"] = df["financial_red_flag"] | (df["fcf_margin"] <= 0)
+        df["financial_red_flag"] = df["financial_red_flag"] | (
+            df["fcf_margin"] <= 0
+        )
 
-    # Data completeness diagnostic
     required_metric_cols = [
         "fcf_margin",
         "fcf_to_debt",
@@ -156,15 +150,20 @@ def standardize_financial_screen(df: pd.DataFrame) -> pd.DataFrame:
         "lbo_financial_score",
     ]
 
-    available_required_cols = [col for col in required_metric_cols if col in df.columns]
+    available_required_cols = [
+        col for col in required_metric_cols if col in df.columns
+    ]
+
     df["financial_metric_count"] = df[available_required_cols].notna().sum(axis=1)
 
     df["financial_data_complete"] = (
         df["financial_metric_count"] == len(available_required_cols)
     )
 
-    # Clean sort
-    df = df.sort_values("financial_feasibility_score", ascending=False).reset_index(drop=True)
+    df = df.sort_values(
+        "financial_feasibility_score",
+        ascending=False,
+    ).reset_index(drop=True)
 
     return df
 
@@ -183,23 +182,19 @@ def save_financial_metrics() -> pd.DataFrame:
     print(f"Saved cleaned financial rows: {len(clean_df)}")
     print(f"Saved file: {FINANCIAL_METRICS_FILE}")
 
-    if "financial_feasibility_score" in clean_df.columns:
-        print("\nTop 10 financial candidates:")
-        print(
-            clean_df[
-                [
-                    "ticker",
-                    "sector",
-                    "lbo_financial_score",
-                    "financial_feasibility_score",
-                    "lbo_status",
-                    "lbo_rating",
-                    "financial_red_flag",
-                ]
-            ]
-            .head(10)
-            .to_string(index=False)
-        )
+    print("\nTop 10 financial candidates:")
+    display_cols = [
+        "ticker",
+        "sector",
+        "lbo_financial_score",
+        "financial_feasibility_score",
+        "lbo_status",
+        "lbo_rating",
+        "financial_red_flag",
+    ]
+    display_cols = [col for col in display_cols if col in clean_df.columns]
+
+    print(clean_df[display_cols].head(10).to_string(index=False))
 
     return clean_df
 
