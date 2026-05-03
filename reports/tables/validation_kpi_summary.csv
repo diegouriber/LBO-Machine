@@ -6,3 +6,4 @@ avg_validation_score,0.0,Average validation score across current top candidates.
 strong_or_partial_validation_rate,0.0,Share of companies with strong or partial validation.
 avg_relative_return_vs_spy,,Average stock return relative to SPY after ranking date.
 avg_max_drawdown,,Average maximum drawdown after ranking date.
+market_price_file_available,0.0,Whether data/raw/validation_prices.csv exists.

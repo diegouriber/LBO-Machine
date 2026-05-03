@@ -1,15 +1,10 @@
-import time
-from io import StringIO
-
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-import requests
 
 from .config import (
     FINAL_RANKING_FILE,
     RAW_DATA_DIR,
-    INTERIM_DATA_DIR,
     TABLES_DIR,
     FIGURES_DIR,
 )
@@ -20,9 +15,8 @@ from .config import (
 # ============================================================
 
 VALIDATION_EVENTS_FILE = RAW_DATA_DIR / "validation_events.csv"
-
-PRICE_CACHE_DIR = INTERIM_DATA_DIR / "validation_price_cache_stooq"
-COMBINED_PRICE_CACHE_FILE = INTERIM_DATA_DIR / "validation_price_cache_stooq_combined.csv"
+VALIDATION_PRICES_FILE = RAW_DATA_DIR / "validation_prices.csv"
+VALIDATION_PRICE_TEMPLATE_FILE = RAW_DATA_DIR / "validation_prices_template.csv"
 
 VALIDATION_DASHBOARD_FILE = TABLES_DIR / "top_candidates_validation_dashboard.csv"
 VALIDATION_KPI_SUMMARY_FILE = TABLES_DIR / "validation_kpi_summary.csv"
@@ -42,17 +36,8 @@ MARKET_KPI_MATRIX_CHART = FIGURES_DIR / "market_kpi_matrix.png"
 DEFAULT_START_DATE = "2025-01-01"
 DEFAULT_END_DATE = "2026-05-04"
 
-# Stooq uses lowercase symbols with .us suffix.
-# Example: AAPL.US -> aapl.us
 BENCHMARK_TICKER = "SPY"
-BENCHMARK_STOOQ_SYMBOL = "spy.us"
-
 TOP_N = 25
-
-STOOQ_DAILY_URL = "https://stooq.com/q/d/l/"
-REQUEST_HEADERS = {
-    "User-Agent": "Mozilla/5.0 LBO-Machine academic project"
-}
 
 
 # ============================================================
@@ -235,16 +220,13 @@ def create_research_template(
     events: pd.DataFrame,
 ) -> pd.DataFrame:
     """
-    Create a richer research template for the current top candidates.
-
-    This file tells the user what to research for each current top candidate.
+    Create a richer research template for current top candidates.
     """
     event_summary = aggregate_event_scores(events)
 
     template = ranking.merge(event_summary, on="ticker", how="left")
 
-    fill_cols = ["manual_event_score", "event_count"]
-    for col in fill_cols:
+    for col in ["manual_event_score", "event_count"]:
         if col in template.columns:
             template[col] = pd.to_numeric(
                 template[col],
@@ -307,159 +289,102 @@ def load_validation_events_for_current_candidates(
 
 
 # ============================================================
-# STOOQ PRICE DATA
+# LOCAL PRICE FILE
 # ============================================================
 
-def ticker_to_stooq_symbol(ticker: str) -> str:
+def create_price_template(ranking: pd.DataFrame) -> None:
     """
-    Convert regular ticker to Stooq US symbol.
+    Create a template for validation_prices.csv.
 
-    Examples:
-    AAPL -> aapl.us
-    BRK-B -> brk-b.us
+    The user can fill this file from any source:
+    Bloomberg, WRDS, CRSP, Yahoo manual download, Alpha Vantage, lecture data, etc.
     """
-    clean = str(ticker).strip().lower().replace(".", "-")
-    return f"{clean}.us"
+    tickers = ranking["ticker"].dropna().astype(str).str.upper().tolist()
+    tickers = sorted(list(set(tickers + [BENCHMARK_TICKER])))
 
+    rows = []
 
-def stooq_symbol_to_cache_name(symbol: str) -> str:
-    """
-    Make a safe file name from a Stooq symbol.
-    """
-    return symbol.replace(".", "_").replace("-", "_")
-
-
-def get_stooq_cache_file(symbol: str):
-    """
-    Get cache file path for one Stooq symbol.
-    """
-    safe_name = stooq_symbol_to_cache_name(symbol)
-    return PRICE_CACHE_DIR / f"{safe_name}.csv"
-
-
-def fetch_stooq_daily_prices(
-    symbol: str,
-    start_date: str,
-    end_date: str,
-    force_refresh: bool = False,
-) -> pd.Series:
-    """
-    Fetch one ticker's daily close prices from Stooq.
-
-    Returns a Series indexed by Date.
-    """
-    PRICE_CACHE_DIR.mkdir(parents=True, exist_ok=True)
-
-    cache_file = get_stooq_cache_file(symbol)
-
-    if cache_file.exists() and not force_refresh:
-        try:
-            cached = pd.read_csv(cache_file, parse_dates=["Date"])
-            if not cached.empty and "Close" in cached.columns:
-                series = cached.set_index("Date")["Close"].sort_index()
-                return series
-        except Exception:
-            pass
-
-    start_compact = pd.to_datetime(start_date).strftime("%Y%m%d")
-    end_compact = pd.to_datetime(end_date).strftime("%Y%m%d")
-
-    params = {
-        "s": symbol,
-        "d1": start_compact,
-        "d2": end_compact,
-        "i": "d",
-    }
-
-    try:
-        response = requests.get(
-            STOOQ_DAILY_URL,
-            params=params,
-            headers=REQUEST_HEADERS,
-            timeout=30,
+    for ticker in tickers:
+        rows.append(
+            {
+                "date": DEFAULT_START_DATE,
+                "ticker": ticker,
+                "close": "",
+            }
+        )
+        rows.append(
+            {
+                "date": DEFAULT_END_DATE,
+                "ticker": ticker,
+                "close": "",
+            }
         )
 
-        response.raise_for_status()
+    template = pd.DataFrame(rows)
 
-        text = response.text.strip()
+    VALIDATION_PRICE_TEMPLATE_FILE.parent.mkdir(parents=True, exist_ok=True)
+    template.to_csv(VALIDATION_PRICE_TEMPLATE_FILE, index=False)
 
-        if not text or "No data" in text:
-            return pd.Series(dtype=float)
-
-        df = pd.read_csv(StringIO(text))
-
-        if df.empty or "Date" not in df.columns or "Close" not in df.columns:
-            return pd.Series(dtype=float)
-
-        df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
-        df = df.dropna(subset=["Date"])
-        df = df.sort_values("Date")
-
-        df.to_csv(cache_file, index=False)
-
-        series = df.set_index("Date")["Close"].astype(float).sort_index()
-        return series
-
-    except Exception as exc:
-        print(f"Failed Stooq download for {symbol}: {exc}")
-        return pd.Series(dtype=float)
-
-
-def get_price_history(
-    tickers: list[str],
-    start_date: str,
-    end_date: str,
-    sleep_seconds: float = 0.25,
-    force_refresh: bool = False,
-) -> pd.DataFrame:
-    """
-    Download or load price history for candidate tickers plus SPY from Stooq.
-
-    Returns a wide DataFrame:
-    index = Date
-    columns = ticker symbols like ADI, ABBV, SPY
-    values = close prices
-    """
-    requested_tickers = sorted(
-        list(set(str(t).strip().upper() for t in tickers if str(t).strip()))
+    print(f"Created price template: {VALIDATION_PRICE_TEMPLATE_FILE}")
+    print(
+        "Fill data/raw/validation_prices.csv with columns: date,ticker,close "
+        "to activate market KPIs."
     )
 
-    all_tickers = sorted(list(set(requested_tickers + [BENCHMARK_TICKER])))
 
-    price_series = {}
+def load_validation_prices(ranking: pd.DataFrame) -> pd.DataFrame:
+    """
+    Load local validation price file.
 
-    print(f"Fetching Stooq price history for {len(all_tickers)} tickers.")
-    print(f"Date range: {start_date} to {end_date}")
+    Expected long format:
+        date,ticker,close
 
-    for ticker in all_tickers:
-        symbol = (
-            BENCHMARK_STOOQ_SYMBOL
-            if ticker == BENCHMARK_TICKER
-            else ticker_to_stooq_symbol(ticker)
+    Example:
+        2025-01-02,ADI,210.34
+        2025-01-03,ADI,212.15
+        2025-01-02,SPY,584.64
+    """
+    if not VALIDATION_PRICES_FILE.exists():
+        create_price_template(ranking)
+        return pd.DataFrame()
+
+    prices_long = pd.read_csv(VALIDATION_PRICES_FILE)
+
+    required_cols = ["date", "ticker", "close"]
+
+    missing_cols = [col for col in required_cols if col not in prices_long.columns]
+
+    if missing_cols:
+        raise ValueError(
+            f"{VALIDATION_PRICES_FILE} is missing columns: {missing_cols}. "
+            "Expected columns: date,ticker,close"
         )
 
-        series = fetch_stooq_daily_prices(
-            symbol=symbol,
-            start_date=start_date,
-            end_date=end_date,
-            force_refresh=force_refresh,
+    prices_long = prices_long.copy()
+    prices_long["date"] = pd.to_datetime(prices_long["date"], errors="coerce")
+    prices_long["ticker"] = prices_long["ticker"].astype(str).str.strip().str.upper()
+    prices_long["close"] = pd.to_numeric(prices_long["close"], errors="coerce")
+
+    prices_long = prices_long.dropna(subset=["date", "ticker", "close"])
+
+    if prices_long.empty:
+        create_price_template(ranking)
+        return pd.DataFrame()
+
+    prices = (
+        prices_long
+        .pivot_table(
+            index="date",
+            columns="ticker",
+            values="close",
+            aggfunc="last",
         )
+        .sort_index()
+    )
 
-        if series.empty:
-            print(f"No price data found for {ticker} ({symbol})")
-        else:
-            price_series[ticker] = series
-
-        time.sleep(sleep_seconds)
-
-    prices = pd.DataFrame(price_series)
-    prices = prices.sort_index()
-
-    COMBINED_PRICE_CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
-    prices.to_csv(COMBINED_PRICE_CACHE_FILE)
-
-    print(f"Saved combined Stooq price cache: {COMBINED_PRICE_CACHE_FILE}")
-    print(f"Price columns available: {len(prices.columns)}")
+    print(f"Loaded local validation prices: {VALIDATION_PRICES_FILE}")
+    print(f"Price rows: {len(prices)}")
+    print(f"Price tickers: {len(prices.columns)}")
 
     return prices
 
@@ -558,12 +483,14 @@ def calculate_market_kpis(
 ) -> pd.DataFrame:
     """
     Calculate market-based validation KPIs.
+
+    If no price file is available, returns NaN market KPIs but does not fail.
     """
     rows = []
 
     spy_return = np.nan
 
-    if BENCHMARK_TICKER in prices.columns:
+    if not prices.empty and BENCHMARK_TICKER in prices.columns:
         spy_return = calculate_return(prices[BENCHMARK_TICKER], start_date, end_date)
 
     for _, row in ranking.iterrows():
@@ -579,7 +506,7 @@ def calculate_market_kpis(
             "market_pressure_score": 0,
         }
 
-        if ticker not in prices.columns:
+        if prices.empty or ticker not in prices.columns:
             rows.append(result)
             continue
 
@@ -661,13 +588,7 @@ def build_validation_dashboard(
     dashboard = ranking.merge(market_kpis, on="ticker", how="left")
     dashboard = dashboard.merge(event_summary, on="ticker", how="left")
 
-    fill_zero_cols = [
-        "manual_event_score",
-        "event_count",
-        "market_pressure_score",
-    ]
-
-    for col in fill_zero_cols:
+    for col in ["manual_event_score", "event_count", "market_pressure_score"]:
         if col in dashboard.columns:
             dashboard[col] = pd.to_numeric(
                 dashboard[col],
@@ -731,6 +652,11 @@ def create_validation_kpi_summary(dashboard: pd.DataFrame) -> pd.DataFrame:
             "kpi": "avg_max_drawdown",
             "value": dashboard["max_drawdown_since_ranking"].mean(),
             "description": "Average maximum drawdown after ranking date.",
+        },
+        {
+            "kpi": "market_price_file_available",
+            "value": int(VALIDATION_PRICES_FILE.exists()),
+            "description": "Whether data/raw/validation_prices.csv exists.",
         },
     ]
 
@@ -857,29 +783,23 @@ def run_validation_dashboard(
     start_date: str = DEFAULT_START_DATE,
     end_date: str = DEFAULT_END_DATE,
     top_n: int = TOP_N,
-    force_price_refresh: bool = False,
 ) -> pd.DataFrame:
     """
     Run the dynamic validation dashboard.
 
-    The candidate list is pulled from the latest final_lbo_ranking.csv.
-    As the model evolves, the validation universe evolves automatically.
+    Validation is source-agnostic:
+    - Manual event evidence comes from data/raw/validation_events.csv
+    - Market prices come from data/raw/validation_prices.csv
+    - If price file is missing, the dashboard still runs and creates a template.
     """
     TABLES_DIR.mkdir(parents=True, exist_ok=True)
     FIGURES_DIR.mkdir(parents=True, exist_ok=True)
 
     ranking = load_final_ranking(top_n=top_n)
-    tickers = ranking["ticker"].tolist()
 
     events = load_validation_events_for_current_candidates(ranking)
 
-    prices = get_price_history(
-        tickers=tickers,
-        start_date=start_date,
-        end_date=end_date,
-        sleep_seconds=0.25,
-        force_refresh=force_price_refresh,
-    )
+    prices = load_validation_prices(ranking)
 
     market_kpis = calculate_market_kpis(
         ranking=ranking,
@@ -942,5 +862,4 @@ if __name__ == "__main__":
         start_date=DEFAULT_START_DATE,
         end_date=DEFAULT_END_DATE,
         top_n=TOP_N,
-        force_price_refresh=False,
     )
