@@ -1,9 +1,10 @@
 import time
+from io import StringIO
 
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-import yfinance as yf
+import requests
 
 from .config import (
     FINAL_RANKING_FILE,
@@ -19,7 +20,9 @@ from .config import (
 # ============================================================
 
 VALIDATION_EVENTS_FILE = RAW_DATA_DIR / "validation_events.csv"
-PRICE_CACHE_FILE = INTERIM_DATA_DIR / "validation_price_cache.csv"
+
+PRICE_CACHE_DIR = INTERIM_DATA_DIR / "validation_price_cache_stooq"
+COMBINED_PRICE_CACHE_FILE = INTERIM_DATA_DIR / "validation_price_cache_stooq_combined.csv"
 
 VALIDATION_DASHBOARD_FILE = TABLES_DIR / "top_candidates_validation_dashboard.csv"
 VALIDATION_KPI_SUMMARY_FILE = TABLES_DIR / "validation_kpi_summary.csv"
@@ -38,8 +41,18 @@ MARKET_KPI_MATRIX_CHART = FIGURES_DIR / "market_kpi_matrix.png"
 
 DEFAULT_START_DATE = "2025-01-01"
 DEFAULT_END_DATE = "2026-05-04"
+
+# Stooq uses lowercase symbols with .us suffix.
+# Example: AAPL.US -> aapl.us
 BENCHMARK_TICKER = "SPY"
+BENCHMARK_STOOQ_SYMBOL = "spy.us"
+
 TOP_N = 25
+
+STOOQ_DAILY_URL = "https://stooq.com/q/d/l/"
+REQUEST_HEADERS = {
+    "User-Agent": "Mozilla/5.0 LBO-Machine academic project"
+}
 
 
 # ============================================================
@@ -111,7 +124,10 @@ def load_existing_events() -> pd.DataFrame:
 
     events = events[required_cols].copy()
     events["ticker"] = events["ticker"].astype(str).str.strip().str.upper()
-    events["event_score"] = pd.to_numeric(events["event_score"], errors="coerce").fillna(0)
+    events["event_score"] = pd.to_numeric(
+        events["event_score"],
+        errors="coerce",
+    ).fillna(0)
 
     return events
 
@@ -127,7 +143,7 @@ def sync_validation_events_with_current_top_candidates(
     2. Adds new blank rows for new top candidates.
     3. Does not delete old manual rows, because old candidates may still matter historically.
 
-    The dashboard will only use the current top candidates, but the CSV can preserve
+    The dashboard will only use the current top candidates, but the CSV preserves
     previous research.
     """
     current_tickers = ranking["ticker"].dropna().astype(str).str.upper().tolist()
@@ -147,10 +163,11 @@ def sync_validation_events_with_current_top_candidates(
 
         synced = pd.concat([existing, pd.DataFrame(new_rows)], ignore_index=True)
 
-    # Add rank/model fields for easier manual research, but keep event file simple.
-    # We save the plain event file, and create a richer research template separately.
     synced["ticker"] = synced["ticker"].astype(str).str.strip().str.upper()
-    synced["event_score"] = pd.to_numeric(synced["event_score"], errors="coerce").fillna(0)
+    synced["event_score"] = pd.to_numeric(
+        synced["event_score"],
+        errors="coerce",
+    ).fillna(0)
 
     VALIDATION_EVENTS_FILE.parent.mkdir(parents=True, exist_ok=True)
     synced.to_csv(VALIDATION_EVENTS_FILE, index=False)
@@ -160,6 +177,57 @@ def sync_validation_events_with_current_top_candidates(
     print(f"Total event rows preserved: {len(synced)}")
 
     return synced
+
+
+def aggregate_event_scores(events: pd.DataFrame) -> pd.DataFrame:
+    """
+    Aggregate manual event scores by ticker.
+    """
+    events = events.copy()
+
+    events["event_score"] = pd.to_numeric(
+        events["event_score"],
+        errors="coerce",
+    ).fillna(0)
+
+    event_summary = (
+        events.groupby("ticker", dropna=False)
+        .agg(
+            manual_event_score=("event_score", "sum"),
+            event_count=("event_score", lambda x: (x > 0).sum()),
+            event_types=(
+                "event_type",
+                lambda x: "; ".join(
+                    sorted(
+                        set(
+                            str(v)
+                            for v in x
+                            if str(v).strip().lower() not in ["", "nan", "none"]
+                        )
+                    )
+                ),
+            ),
+            event_descriptions=(
+                "event_description",
+                lambda x: " | ".join(
+                    str(v)
+                    for v in x
+                    if str(v).strip().lower() not in ["", "nan", "none"]
+                ),
+            ),
+            sources=(
+                "source",
+                lambda x: " | ".join(
+                    str(v)
+                    for v in x
+                    if str(v).strip().lower() not in ["", "nan", "none"]
+                ),
+            ),
+        )
+        .reset_index()
+    )
+
+    return event_summary
 
 
 def create_research_template(
@@ -178,14 +246,17 @@ def create_research_template(
     fill_cols = ["manual_event_score", "event_count"]
     for col in fill_cols:
         if col in template.columns:
-            template[col] = pd.to_numeric(template[col], errors="coerce").fillna(0)
+            template[col] = pd.to_numeric(
+                template[col],
+                errors="coerce",
+            ).fillna(0)
 
     for col in ["event_types", "event_descriptions", "sources"]:
         if col in template.columns:
             template[col] = template[col].fillna("")
 
     template["research_questions"] = (
-        "Check: acquisition/take-private rumors or deal; activist investor pressure; "
+        "Check: acquisition/take-private deal or rumors; activist investor pressure; "
         "major restructuring; layoffs; divestitures; strategic review; major market underperformance."
     )
 
@@ -236,118 +307,161 @@ def load_validation_events_for_current_candidates(
 
 
 # ============================================================
-# PRICE DATA
+# STOOQ PRICE DATA
 # ============================================================
 
-def normalize_ticker_for_yfinance(ticker: str) -> str:
+def ticker_to_stooq_symbol(ticker: str) -> str:
     """
-    Convert ticker to yfinance format.
+    Convert regular ticker to Stooq US symbol.
+
+    Examples:
+    AAPL -> aapl.us
+    BRK-B -> brk-b.us
     """
-    return str(ticker).strip().upper().replace(".", "-")
+    clean = str(ticker).strip().lower().replace(".", "-")
+    return f"{clean}.us"
 
 
-def load_price_cache() -> pd.DataFrame:
+def stooq_symbol_to_cache_name(symbol: str) -> str:
     """
-    Load cached price history.
+    Make a safe file name from a Stooq symbol.
     """
-    if not PRICE_CACHE_FILE.exists():
-        return pd.DataFrame()
-
-    prices = pd.read_csv(PRICE_CACHE_FILE, index_col=0, parse_dates=True)
-    prices.columns = [str(col).strip().upper() for col in prices.columns]
-
-    return prices
+    return symbol.replace(".", "_").replace("-", "_")
 
 
-def save_price_cache(prices: pd.DataFrame) -> None:
+def get_stooq_cache_file(symbol: str):
     """
-    Save price cache.
+    Get cache file path for one Stooq symbol.
     """
-    PRICE_CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
-    prices.to_csv(PRICE_CACHE_FILE)
+    safe_name = stooq_symbol_to_cache_name(symbol)
+    return PRICE_CACHE_DIR / f"{safe_name}.csv"
 
 
-def download_prices(
+def fetch_stooq_daily_prices(
+    symbol: str,
+    start_date: str,
+    end_date: str,
+    force_refresh: bool = False,
+) -> pd.Series:
+    """
+    Fetch one ticker's daily close prices from Stooq.
+
+    Returns a Series indexed by Date.
+    """
+    PRICE_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+
+    cache_file = get_stooq_cache_file(symbol)
+
+    if cache_file.exists() and not force_refresh:
+        try:
+            cached = pd.read_csv(cache_file, parse_dates=["Date"])
+            if not cached.empty and "Close" in cached.columns:
+                series = cached.set_index("Date")["Close"].sort_index()
+                return series
+        except Exception:
+            pass
+
+    start_compact = pd.to_datetime(start_date).strftime("%Y%m%d")
+    end_compact = pd.to_datetime(end_date).strftime("%Y%m%d")
+
+    params = {
+        "s": symbol,
+        "d1": start_compact,
+        "d2": end_compact,
+        "i": "d",
+    }
+
+    try:
+        response = requests.get(
+            STOOQ_DAILY_URL,
+            params=params,
+            headers=REQUEST_HEADERS,
+            timeout=30,
+        )
+
+        response.raise_for_status()
+
+        text = response.text.strip()
+
+        if not text or "No data" in text:
+            return pd.Series(dtype=float)
+
+        df = pd.read_csv(StringIO(text))
+
+        if df.empty or "Date" not in df.columns or "Close" not in df.columns:
+            return pd.Series(dtype=float)
+
+        df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
+        df = df.dropna(subset=["Date"])
+        df = df.sort_values("Date")
+
+        df.to_csv(cache_file, index=False)
+
+        series = df.set_index("Date")["Close"].astype(float).sort_index()
+        return series
+
+    except Exception as exc:
+        print(f"Failed Stooq download for {symbol}: {exc}")
+        return pd.Series(dtype=float)
+
+
+def get_price_history(
     tickers: list[str],
     start_date: str,
     end_date: str,
-    batch_size: int = 10,
-    sleep_seconds: float = 10.0,
+    sleep_seconds: float = 0.25,
     force_refresh: bool = False,
 ) -> pd.DataFrame:
     """
-    Download close prices for candidates plus SPY.
+    Download or load price history for candidate tickers plus SPY from Stooq.
 
-    Uses batching and cache to reduce Yahoo rate-limit problems.
+    Returns a wide DataFrame:
+    index = Date
+    columns = ticker symbols like ADI, ABBV, SPY
+    values = close prices
     """
-    normalized = [normalize_ticker_for_yfinance(t) for t in tickers]
-    normalized = sorted(list(set(normalized + [BENCHMARK_TICKER])))
+    requested_tickers = sorted(
+        list(set(str(t).strip().upper() for t in tickers if str(t).strip()))
+    )
 
-    if not force_refresh:
-        cached = load_price_cache()
+    all_tickers = sorted(list(set(requested_tickers + [BENCHMARK_TICKER])))
 
-        if not cached.empty:
-            missing = [ticker for ticker in normalized if ticker not in cached.columns]
+    price_series = {}
 
-            if len(missing) == 0:
-                print(f"Using cached validation prices: {PRICE_CACHE_FILE}")
-                return cached[normalized]
-
-            print(f"Using partial price cache. Missing tickers: {len(missing)}")
-        else:
-            cached = pd.DataFrame()
-            missing = normalized
-    else:
-        cached = pd.DataFrame()
-        missing = normalized
-
-    all_prices = cached.copy()
-
-    print(f"Downloading validation prices for {len(missing)} tickers.")
+    print(f"Fetching Stooq price history for {len(all_tickers)} tickers.")
     print(f"Date range: {start_date} to {end_date}")
 
-    for i in range(0, len(missing), batch_size):
-        batch = missing[i:i + batch_size]
-        print(f"Downloading price batch {i // batch_size + 1}: {batch}")
+    for ticker in all_tickers:
+        symbol = (
+            BENCHMARK_STOOQ_SYMBOL
+            if ticker == BENCHMARK_TICKER
+            else ticker_to_stooq_symbol(ticker)
+        )
 
-        try:
-            data = yf.download(
-                tickers=batch,
-                start=start_date,
-                end=end_date,
-                auto_adjust=True,
-                group_by="ticker",
-                threads=True,
-                progress=True,
-            )
+        series = fetch_stooq_daily_prices(
+            symbol=symbol,
+            start_date=start_date,
+            end_date=end_date,
+            force_refresh=force_refresh,
+        )
 
-            closes = pd.DataFrame()
-
-            if isinstance(data.columns, pd.MultiIndex):
-                for ticker in batch:
-                    if ticker in data.columns.get_level_values(0):
-                        ticker_data = data[ticker]
-                        if "Close" in ticker_data.columns:
-                            closes[ticker] = ticker_data["Close"]
-            else:
-                if len(batch) == 1 and "Close" in data.columns:
-                    closes[batch[0]] = data["Close"]
-
-            if not closes.empty:
-                all_prices = pd.concat([all_prices, closes], axis=1)
-                all_prices = all_prices.loc[:, ~all_prices.columns.duplicated()]
-                all_prices = all_prices.sort_index()
-                save_price_cache(all_prices)
-
-        except Exception as exc:
-            print(f"Price batch failed: {batch}")
-            print(f"Error: {exc}")
+        if series.empty:
+            print(f"No price data found for {ticker} ({symbol})")
+        else:
+            price_series[ticker] = series
 
         time.sleep(sleep_seconds)
 
-    save_price_cache(all_prices)
+    prices = pd.DataFrame(price_series)
+    prices = prices.sort_index()
 
-    return all_prices
+    COMBINED_PRICE_CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
+    prices.to_csv(COMBINED_PRICE_CACHE_FILE)
+
+    print(f"Saved combined Stooq price cache: {COMBINED_PRICE_CACHE_FILE}")
+    print(f"Price columns available: {len(prices.columns)}")
+
+    return prices
 
 
 # ============================================================
@@ -355,6 +469,9 @@ def download_prices(
 # ============================================================
 
 def get_price_on_or_after(series: pd.Series, date: pd.Timestamp):
+    """
+    First available price on or after date.
+    """
     series = series.dropna()
 
     if series.empty:
@@ -369,6 +486,9 @@ def get_price_on_or_after(series: pd.Series, date: pd.Timestamp):
 
 
 def get_price_on_or_before(series: pd.Series, date: pd.Timestamp):
+    """
+    Last available price on or before date.
+    """
     series = series.dropna()
 
     if series.empty:
@@ -447,10 +567,10 @@ def calculate_market_kpis(
         spy_return = calculate_return(prices[BENCHMARK_TICKER], start_date, end_date)
 
     for _, row in ranking.iterrows():
-        ticker = normalize_ticker_for_yfinance(row["ticker"])
+        ticker = str(row["ticker"]).strip().upper()
 
         result = {
-            "ticker": row["ticker"],
+            "ticker": ticker,
             "stock_return_since_ranking": np.nan,
             "spy_return_since_ranking": spy_return,
             "relative_return_vs_spy": np.nan,
@@ -480,6 +600,10 @@ def calculate_market_kpis(
 
         market_pressure_score = 0
 
+        # Model-validation pressure signals:
+        # 1. Underperformed SPY by 15%+
+        # 2. Suffered 30%+ max drawdown
+        # 3. Annualized volatility above 40%
         if pd.notna(relative_return) and relative_return <= -0.15:
             market_pressure_score += 1
 
@@ -505,56 +629,8 @@ def calculate_market_kpis(
 
 
 # ============================================================
-# EVENT VALIDATION
+# VALIDATION DASHBOARD
 # ============================================================
-
-def aggregate_event_scores(events: pd.DataFrame) -> pd.DataFrame:
-    """
-    Aggregate manual event scores by ticker.
-    """
-    events = events.copy()
-
-    events["event_score"] = pd.to_numeric(events["event_score"], errors="coerce").fillna(0)
-
-    event_summary = (
-        events.groupby("ticker", dropna=False)
-        .agg(
-            manual_event_score=("event_score", "sum"),
-            event_count=("event_score", lambda x: (x > 0).sum()),
-            event_types=(
-                "event_type",
-                lambda x: "; ".join(
-                    sorted(
-                        set(
-                            str(v)
-                            for v in x
-                            if str(v).strip().lower() not in ["", "nan", "none"]
-                        )
-                    )
-                ),
-            ),
-            event_descriptions=(
-                "event_description",
-                lambda x: " | ".join(
-                    str(v)
-                    for v in x
-                    if str(v).strip().lower() not in ["", "nan", "none"]
-                ),
-            ),
-            sources=(
-                "source",
-                lambda x: " | ".join(
-                    str(v)
-                    for v in x
-                    if str(v).strip().lower() not in ["", "nan", "none"]
-                ),
-            ),
-        )
-        .reset_index()
-    )
-
-    return event_summary
-
 
 def classify_validation(row: pd.Series) -> str:
     """
@@ -593,7 +669,10 @@ def build_validation_dashboard(
 
     for col in fill_zero_cols:
         if col in dashboard.columns:
-            dashboard[col] = pd.to_numeric(dashboard[col], errors="coerce").fillna(0)
+            dashboard[col] = pd.to_numeric(
+                dashboard[col],
+                errors="coerce",
+            ).fillna(0)
 
     for col in ["event_types", "event_descriptions", "sources"]:
         if col in dashboard.columns:
@@ -638,7 +717,9 @@ def create_validation_kpi_summary(dashboard: pd.DataFrame) -> pd.DataFrame:
         },
         {
             "kpi": "strong_or_partial_validation_rate",
-            "value": dashboard["validation_label"].isin(["Strong validation", "Partial validation"]).mean(),
+            "value": dashboard["validation_label"].isin(
+                ["Strong validation", "Partial validation"]
+            ).mean(),
             "description": "Share of companies with strong or partial validation.",
         },
         {
@@ -782,7 +863,7 @@ def run_validation_dashboard(
     Run the dynamic validation dashboard.
 
     The candidate list is pulled from the latest final_lbo_ranking.csv.
-    So as the model evolves, the validation universe evolves automatically.
+    As the model evolves, the validation universe evolves automatically.
     """
     TABLES_DIR.mkdir(parents=True, exist_ok=True)
     FIGURES_DIR.mkdir(parents=True, exist_ok=True)
@@ -792,12 +873,11 @@ def run_validation_dashboard(
 
     events = load_validation_events_for_current_candidates(ranking)
 
-    prices = download_prices(
+    prices = get_price_history(
         tickers=tickers,
         start_date=start_date,
         end_date=end_date,
-        batch_size=10,
-        sleep_seconds=10.0,
+        sleep_seconds=0.25,
         force_refresh=force_price_refresh,
     )
 
@@ -835,6 +915,7 @@ def run_validation_dashboard(
         "stock_return_since_ranking",
         "relative_return_vs_spy",
         "max_drawdown_since_ranking",
+        "volatility_since_ranking",
         "market_pressure_score",
         "manual_event_score",
         "validation_score",
