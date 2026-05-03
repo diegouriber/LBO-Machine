@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+.env
+.venv/
+venv/
+*.zip
+*.rar
+*.7z
+.DS_Store
+~$*
