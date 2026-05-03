@@ -12,18 +12,24 @@ def run_full_pipeline(
     run_nlp: bool = True,
     run_ranking: bool = True,
     run_plots: bool = True,
-    run_backtest: bool = True,
+    run_backtest: bool = False,
 ) -> None:
     """
     Run the full LBO Machine pipeline.
 
     Steps:
-    1. Fetch S&P 500 universe
-    2. Clean financial data
-    3. Clean and score NLP stagnation metrics
-    4. Merge NLP + financial layers and rank companies
-    5. Generate analytical charts
-    6. Run forward-return validation
+    1. Fetch S&P 500 universe.
+    2. Clean financial data.
+    3. Clean and score NLP stagnation metrics.
+    4. Merge NLP + financial layers and rank companies.
+    5. Generate analytical charts.
+    6. Optionally run forward-return validation.
+
+    Note:
+    The backtest is turned off by default because yfinance can rate-limit
+    price downloads. The backtest can still be run manually with:
+
+        python -m src.lbo_machine.backtest
     """
 
     print("=" * 80)
@@ -65,6 +71,7 @@ def run_full_pipeline(
         save_backtest_outputs(ranking_date="2025-01-01", max_companies=None)
     else:
         print("\n[6/6] Skipping backtest step.")
+        print("To run validation manually: python -m src.lbo_machine.backtest")
 
     print("\n" + "=" * 80)
     print("LBO MACHINE PIPELINE FINISHED")
@@ -78,6 +85,5 @@ if __name__ == "__main__":
         run_nlp=True,
         run_ranking=True,
         run_plots=True,
-        run_backtest=True,
+        run_backtest=False,
     )
-    
