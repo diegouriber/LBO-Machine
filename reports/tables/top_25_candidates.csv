@@ -1,26 +1,26 @@
 rank,ticker,sector,final_score,nlp_stagnation_score,financial_feasibility_score,lbo_financial_score,lbo_status,lbo_rating,financial_red_flag,candidate_label
-1,ADI,Information Technology,0.8282116460138303,0.8017309228769005,0.89,89.0,Pass,Ideal,False,Strong candidate
-2,ABBV,Health Care,0.8095308118738995,0.7921868741055708,0.85,85.0,Fail,Situational,False,Strong candidate
-3,ANET,Information Technology,0.8093681899935963,0.7362402714194232,0.98,98.0,Pass,Ideal,False,Strong candidate
-4,IDXX,Health Care,0.8048074276772801,0.7661534681104003,0.8950000000000001,89.50000000000001,Pass,Ideal,False,Strong candidate
-5,APH,Information Technology,0.8043025693648711,0.7718608133783873,0.88,88.0,Pass,Ideal,False,Strong candidate
-6,TMO,Health Care,0.7987874799336658,0.7404106856195225,0.9350000000000002,93.5,Pass,Ideal,False,Review candidate
-7,PNR,Industrials,0.7959872184454168,0.7835531692077384,0.825,82.5,Pass,Attractive,False,Review candidate
-8,ROP,Information Technology,0.7911400303904732,0.7573429005578188,0.87,87.0,Fail,Situational,False,Review candidate
-9,FAST,Industrials,0.7900047061819766,0.7450067231171096,0.8950000000000001,89.50000000000001,Pass,Ideal,False,Review candidate
-10,CMI,Industrials,0.7893880592464056,0.7784115132091511,0.8149999999999998,81.49999999999999,Pass,Attractive,False,Review candidate
-11,EME,Industrials,0.7875183337122043,0.7457404767317204,0.885,88.5,Pass,Ideal,False,Review candidate
-12,PANW,Information Technology,0.784704276088482,0.7781489658406887,0.8,80.0,Fail,Marginal,True,"High NLP signal, financial caution"
-13,KO,Consumer Staples,0.7844783894055419,0.7585405562936314,0.8450000000000002,84.50000000000001,Pass,Attractive,False,Review candidate
-14,VRT,Industrials,0.7834164693452855,0.7848806704932652,0.78,78.0,Pass,Attractive,False,Review candidate
-15,HUBB,Industrials,0.7825214942311323,0.7514592774730462,0.855,85.5,Pass,Ideal,False,Review candidate
-16,CVS,Health Care,0.7801558587558395,0.7759369410797707,0.79,79.0,Fail,Marginal,False,Review candidate
-17,EQR,Real Estate,0.7799313037487298,0.7713304339267568,0.8,80.0,Fail,Insufficient data,True,"High NLP signal, financial caution"
-18,NVDA,Information Technology,0.7756948727045383,0.6881355324350548,0.98,98.0,Pass,Ideal,False,Review candidate
-19,SLB,Energy,0.7725277423986958,0.7586110605695655,0.805,80.5,Pass,Attractive,False,Review candidate
-20,ITW,Industrials,0.7706639808843283,0.7173771155490405,0.8950000000000001,89.50000000000001,Pass,Ideal,False,Review candidate
-21,STLD,Materials,0.7671648942509041,0.7573784203584345,0.79,79.0,Pass,Attractive,False,Review candidate
-22,KMB,Consumer Staples,0.7670333437210715,0.7164762053158162,0.885,88.5,Fail,Situational,False,Review candidate
-23,ABT,Health Care,0.7666428170942395,0.7309183101346279,0.85,85.0,Pass,Ideal,False,Review candidate
-24,TAP,Consumer Staples,0.7654115443281828,0.7377307776116897,0.8299999999999998,82.99999999999999,Fail,Marginal,False,Review candidate
-25,RMD,Health Care,0.7610857021496519,0.7229795744995027,0.85,85.0,Pass,Ideal,False,Review candidate
+1,MSI,Information Technology,0.973,1.0,0.91,91.0,Pass,Ideal,False,Strong candidate
+2,SNPS,Information Technology,0.9038479172354589,0.9976398817649412,0.685,68.5,Fail,Marginal,True,"High NLP signal, financial caution"
+3,EL,Consumer Staples,0.8973182556000409,0.96902607942863,0.73,73.0,Pass,Attractive,False,Strong candidate
+4,EME,Industrials,0.8850331254488988,0.8850473220698556,0.885,88.5,Pass,Ideal,False,Strong candidate
+5,COST,Consumer Staples,0.7887493481237943,0.7667847830339919,0.84,84.0,Fail,Marginal,False,Review candidate
+6,QCOM,Information Technology,0.7873376299998095,0.7154823285711565,0.955,95.5,Pass,Ideal,False,Review candidate
+7,DOV,Industrials,0.7865681686329407,0.7550973837613438,0.86,86.0,Pass,Ideal,False,Review candidate
+8,DXCM,Health Care,0.774094757950078,0.7522782256429688,0.825,82.5,Pass,Attractive,False,Review candidate
+9,PLTR,Information Technology,0.7721251801225903,0.7044645430322721,0.9299999999999998,93.0,Pass,Ideal,False,Review candidate
+10,KLAC,Information Technology,0.77089712609502,0.7519958944214573,0.815,81.5,Pass,Attractive,False,Review candidate
+11,MPC,Energy,0.7705065873056864,0.7192951247224094,0.8899999999999999,88.99999999999999,Pass,Ideal,False,Review candidate
+12,DHR,Health Care,0.7674293655060851,0.6998990935801216,0.925,92.5,Pass,Ideal,False,Review candidate
+13,TDY,Information Technology,0.766024611101136,0.7428923015730514,0.82,82.0,Pass,Attractive,False,Review candidate
+14,UNH,Health Care,0.7634008739226482,0.7027155341752119,0.9049999999999998,90.5,Fail,Situational,False,Review candidate
+15,MOS,Materials,0.7626386211004332,0.783055173000619,0.715,71.5,Fail,Marginal,False,Review candidate
+16,AMD,Information Technology,0.7569959519288297,0.7471370741840425,0.78,78.0,Fail,Marginal,False,Review candidate
+17,GILD,Health Care,0.7548313262634099,0.6754733232334429,0.9399999999999998,94.0,Pass,Ideal,False,Review candidate
+18,MCHP,Information Technology,0.7545850744478049,0.7051215349254356,0.87,87.0,Pass,Ideal,False,Review candidate
+19,NVDA,Information Technology,0.7534056528363549,0.6562937897662213,0.98,98.0,Pass,Ideal,False,Review candidate
+20,FAST,Industrials,0.751572869783403,0.6901040996905757,0.8950000000000001,89.50000000000001,Pass,Ideal,False,Review candidate
+21,RCL,Consumer Discretionary,0.7513663881067862,0.8269519830096947,0.575,57.5,Fail,Marginal,False,Review candidate
+22,CCI,Real Estate,0.7498134081251377,0.6897334401787683,0.89,89.0,Fail,Situational,False,Review candidate
+23,LEN,Consumer Discretionary,0.7456787453699685,0.6602553505285266,0.945,94.5,Fail,Insufficient data,True,"High NLP signal, financial caution"
+24,HAL,Energy,0.7453056672298868,0.7261509531855526,0.79,79.0,Pass,Attractive,False,Review candidate
+25,HLT,Consumer Discretionary,0.74376667467839,0.6853809638262713,0.88,88.0,Fail,Situational,False,Review candidate

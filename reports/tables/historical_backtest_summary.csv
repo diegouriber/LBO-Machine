@@ -1,0 +1,5 @@
+signal_year,raw_company_year_rows,companies_with_usable_nlp_score,minimum_required_components,top10_count,avg_top10_historical_nlp_score,min_top10_historical_nlp_score,max_top10_historical_nlp_score,interpretation
+2022,51,0,3,0,,,,No top 10 produced because too few companies met signal-quality threshold
+2023,292,50,3,10,0.687033,0.648919,0.785628,Usable historical NLP ranking
+2024,312,287,3,10,0.76174,0.752213,0.811138,Usable historical NLP ranking
+2025,322,311,3,10,0.740832,0.724649,0.774047,Usable historical NLP ranking

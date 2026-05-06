@@ -1,167 +1,152 @@
+from __future__ import annotations
+
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
-from sklearn.preprocessing import MinMaxScaler
 
-from .config import RAW_STAGNATION_FILE, NLP_METRICS_FILE
+from .config import NLP_METRICS_FILE
 
 
-def load_raw_nlp_metrics() -> pd.DataFrame:
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+
+REFINED_STAGNATION_FILE = PROJECT_ROOT / "data" / "interim" / "refined_stagnation_scores.csv"
+
+REFINED_COMPONENTS = [
+    "innovation_decay_score",
+    "strategic_decay_score",
+    "topic_rigidity_score",
+    "management_confidence_score",
+]
+
+MIN_REFINED_COMPONENTS = 3
+
+
+def min_max_scale(series: pd.Series) -> pd.Series:
     """
-    Load the raw stagnation metrics file created from the filing/NLP pipeline.
+    Convert a numeric series to a 0-1 score.
     """
-    if not RAW_STAGNATION_FILE.exists():
-        raise FileNotFoundError(f"Missing raw NLP file: {RAW_STAGNATION_FILE}")
+    s = pd.to_numeric(series, errors="coerce")
+    s = s.replace([np.inf, -np.inf], np.nan)
 
-    df = pd.read_csv(RAW_STAGNATION_FILE)
+    min_v = s.min(skipna=True)
+    max_v = s.max(skipna=True)
 
-    # Standardize column names
-    df.columns = (
-        df.columns
-        .astype(str)
-        .str.strip()
-        .str.lower()
-        .str.replace(" ", "_")
-    )
+    if pd.isna(min_v) or pd.isna(max_v) or min_v == max_v:
+        return pd.Series(np.nan, index=s.index)
 
-    return df
+    return (s - min_v) / (max_v - min_v)
 
 
-def is_empty_for_removal(value) -> bool:
+def load_refined_stagnation_scores() -> pd.DataFrame:
     """
-    Identify values that should be treated as empty/unusable.
-    Handles NaN, empty strings, stringified lists, and common null strings.
+    Load Heyman's refined stagnation output and convert it into the format
+    expected by the main LBO Machine pipeline.
+
+    Important quality rule:
+        A company must have at least 3 of 4 refined NLP components.
+        This prevents companies from ranking highly based on only one signal.
     """
-    if pd.isna(value):
-        return True
+    if not REFINED_STAGNATION_FILE.exists():
+        raise FileNotFoundError(
+            f"Missing refined stagnation file: {REFINED_STAGNATION_FILE}"
+        )
 
-    if isinstance(value, str):
-        cleaned = value.strip().lower()
+    df = pd.read_csv(REFINED_STAGNATION_FILE)
 
-        if cleaned in ["", "nan", "none", "null", "[]", "{}", "na", "n/a"]:
-            return True
-
-    return False
-
-
-def find_ticker_column(df: pd.DataFrame) -> str:
-    """
-    Find the ticker column in the NLP dataset.
-    """
-    possible_cols = ["ticker", "symbol", "stock", "company_ticker"]
-
-    for col in possible_cols:
-        if col in df.columns:
-            return col
-
-    raise ValueError(
-        "Could not find a ticker column. Expected one of: "
-        f"{possible_cols}. Actual columns: {df.columns.tolist()}"
-    )
-
-
-def select_available_nlp_components(df: pd.DataFrame) -> list[str]:
-    """
-    Select NLP component columns that exist in the current dataset.
-
-    The current project has used different naming versions across notebooks,
-    so this function is intentionally flexible.
-    """
-    preferred_components = [
-        "innovation_decay_slope",
-        "strategic_decay_slope",
-        "strategic_decay",
-        "topic_rigidity",
-        "sentiment_growth_correlation",
-        "sentiment_growth_misalignment",
-    ]
-
-    available_components = [col for col in preferred_components if col in df.columns]
-
-    if len(available_components) == 0:
+    if "ticker" not in df.columns:
         raise ValueError(
-            "No usable NLP component columns found. "
-            f"Looked for: {preferred_components}. "
+            f"refined_stagnation_scores.csv must contain ticker. "
             f"Actual columns: {df.columns.tolist()}"
         )
 
-    return available_components
+    if "final_stagnation_score" not in df.columns:
+        raise ValueError(
+            "refined_stagnation_scores.csv must contain final_stagnation_score."
+        )
 
+    missing_components = [col for col in REFINED_COMPONENTS if col not in df.columns]
+    if missing_components:
+        raise ValueError(f"Missing refined NLP component columns: {missing_components}")
 
-def clean_nlp_metrics(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Clean the raw NLP metrics dataset.
-    """
-    df = df.copy()
+    df["ticker"] = df["ticker"].astype(str).str.upper().str.strip()
+    df = df[df["ticker"] != ""].copy()
 
-    ticker_col = find_ticker_column(df)
+    for col in REFINED_COMPONENTS + ["final_stagnation_score"]:
+        df[col] = pd.to_numeric(df[col], errors="coerce")
+        df[col] = df[col].replace([np.inf, -np.inf], np.nan)
 
-    if ticker_col != "ticker":
-        df = df.rename(columns={ticker_col: "ticker"})
-
-    df["ticker"] = df["ticker"].astype(str).str.strip().str.upper()
-
-    # Remove duplicate ticker rows if any exist.
-    # Keeps the first available company-level result.
-    df = df.drop_duplicates(subset=["ticker"]).copy()
-
-    nlp_components = select_available_nlp_components(df)
-
-    # Remove rows where all selected NLP components are empty/unusable.
-    mask_all_empty = np.logical_and.reduce(
-        [
-            df[col].apply(is_empty_for_removal).to_numpy()
-            for col in nlp_components
-        ]
+    df["refined_usable_component_count"] = df[REFINED_COMPONENTS].notna().sum(axis=1)
+    df["refined_signal_quality"] = np.where(
+        df["refined_usable_component_count"] >= MIN_REFINED_COMPONENTS,
+        "usable",
+        "insufficient_components",
     )
 
-    df = df[~mask_all_empty].copy()
+    before_filter = len(df)
+    df = df[df["refined_usable_component_count"] >= MIN_REFINED_COMPONENTS].copy()
+    after_filter = len(df)
 
-    # Convert components to numeric.
-    # Non-numeric entries become NaN.
-    for col in nlp_components:
-        df[col] = pd.to_numeric(df[col], errors="coerce")
+    if df.empty:
+        raise ValueError(
+            "No companies passed the refined NLP quality filter. "
+            "Check refined_stagnation_scores.csv."
+        )
 
-    # Remove rows where all selected components became NaN after numeric conversion.
-    df = df.dropna(subset=nlp_components, how="all").copy()
+    # Keep one row per ticker. If duplicates exist, keep the highest refined score.
+    df = (
+        df.sort_values("final_stagnation_score", ascending=False)
+        .drop_duplicates(subset=["ticker"], keep="first")
+        .reset_index(drop=True)
+    )
 
-    return df.reset_index(drop=True)
+    # Pipeline compatibility:
+    # final_stagnation_score is z-score style, so convert to 0-1 for the 70/30 model.
+    df["nlp_stagnation_score"] = min_max_scale(df["final_stagnation_score"])
 
+    rename_map = {
+        "innovation_decay_score": "innovation_decay_refined",
+        "strategic_decay_score": "strategic_decay_refined",
+        "topic_rigidity_score": "topic_rigidity_refined",
+        "management_confidence_score": "management_confidence_refined",
+    }
 
-def score_nlp_metrics(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Normalize NLP components and calculate nlp_stagnation_score.
+    for old_col, new_col in rename_map.items():
+        df[new_col] = df[old_col]
 
-    Higher nlp_stagnation_score = stronger stagnation signal.
-    """
-    df = df.copy()
+    df["nlp_source"] = "refined_phrase_based_stagnation_model"
+    df["minimum_required_refined_components"] = MIN_REFINED_COMPONENTS
+    df["refined_rows_before_quality_filter"] = before_filter
+    df["refined_rows_after_quality_filter"] = after_filter
 
-    nlp_components = select_available_nlp_components(df)
+    output_cols = [
+        "ticker",
+        "nlp_stagnation_score",
+        "final_stagnation_score",
 
-    # Fill component-level missing values with the median.
-    # This avoids losing companies that have most, but not all, NLP signals.
-    for col in nlp_components:
-        median_value = df[col].median()
+        "innovation_decay_refined",
+        "strategic_decay_refined",
+        "topic_rigidity_refined",
+        "management_confidence_refined",
 
-        if pd.isna(median_value):
-            median_value = 0
+        "innovation_decay_zscore",
+        "strategic_decay_zscore",
+        "topic_rigidity_zscore",
+        "management_confidence_zscore",
+        "management_confidence_zscore_aligned",
 
-        df[col] = df[col].fillna(median_value)
+        "refined_usable_component_count",
+        "minimum_required_refined_components",
+        "refined_signal_quality",
+        "nlp_source",
+        "refined_rows_before_quality_filter",
+        "refined_rows_after_quality_filter",
+    ]
 
-    scaled_cols = [f"{col}_scaled" for col in nlp_components]
+    output_cols = [col for col in output_cols if col in df.columns]
 
-    scaler = MinMaxScaler()
-    df[scaled_cols] = scaler.fit_transform(df[nlp_components])
-
-    # Important direction logic:
-    # For innovation_decay_slope and strategic_decay_slope, more negative may mean stronger decay.
-    # To keep this project simple and transparent, we assume the raw notebook already calculated
-    # these variables in a direction where higher = more stagnation.
-    # If later we confirm the opposite, we can flip those columns before scaling.
-    df["nlp_stagnation_score"] = df[scaled_cols].mean(axis=1)
-
-    df["nlp_component_count"] = len(nlp_components)
-    df["nlp_missing_component_count"] = df[nlp_components].isna().sum(axis=1)
-
+    df = df[output_cols].copy()
+    df = df.dropna(subset=["nlp_stagnation_score"]).copy()
     df = df.sort_values("nlp_stagnation_score", ascending=False).reset_index(drop=True)
 
     return df
@@ -169,27 +154,44 @@ def score_nlp_metrics(df: pd.DataFrame) -> pd.DataFrame:
 
 def save_nlp_metrics() -> pd.DataFrame:
     """
-    Load, clean, score, and save NLP stagnation metrics.
+    Save the refined NLP stagnation score in the format expected by the rest
+    of the LBO Machine pipeline.
     """
-    raw_df = load_raw_nlp_metrics()
-    clean_df = clean_nlp_metrics(raw_df)
-    scored_df = score_nlp_metrics(clean_df)
+    scored_df = load_refined_stagnation_scores()
 
     NLP_METRICS_FILE.parent.mkdir(parents=True, exist_ok=True)
     scored_df.to_csv(NLP_METRICS_FILE, index=False)
 
-    print(f"Loaded raw NLP rows: {len(raw_df)}")
-    print(f"Rows after NLP cleaning: {len(clean_df)}")
-    print(f"Saved scored NLP rows: {len(scored_df)}")
-    print(f"Saved file: {NLP_METRICS_FILE}")
+    print("Using refined phrase-based NLP stagnation scores.")
+    print(f"Loaded refined rows before quality filter: {scored_df['refined_rows_before_quality_filter'].iloc[0]}")
+    print(f"Rows after quality filter: {len(scored_df)}")
+    print(f"Minimum required refined components: {MIN_REFINED_COMPONENTS}")
+    print(f"Saved NLP metrics: {NLP_METRICS_FILE}")
 
     print("\nNLP components used:")
-    for col in select_available_nlp_components(scored_df):
-        print(f"- {col}")
+    for col in [
+        "innovation_decay_refined",
+        "strategic_decay_refined",
+        "topic_rigidity_refined",
+        "management_confidence_refined",
+    ]:
+        if col in scored_df.columns:
+            print(f"- {col}")
 
-    print("\nTop 10 NLP stagnation candidates:")
-    output_cols = ["ticker", "nlp_stagnation_score"] + select_available_nlp_components(scored_df)
-    print(scored_df[output_cols].head(10).to_string(index=False))
+    print("\nTop 10 refined NLP stagnation candidates:")
+    display_cols = [
+        "ticker",
+        "nlp_stagnation_score",
+        "final_stagnation_score",
+        "refined_usable_component_count",
+        "innovation_decay_refined",
+        "strategic_decay_refined",
+        "topic_rigidity_refined",
+        "management_confidence_refined",
+    ]
+    display_cols = [col for col in display_cols if col in scored_df.columns]
+
+    print(scored_df[display_cols].head(10).to_string(index=False))
 
     return scored_df
 
